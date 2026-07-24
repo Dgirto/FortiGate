@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="doc_title">Conector Fortinet FortiGate — Ruvic</title>
+  <link rel="stylesheet" href="assets/ruvic.css">
+</head>
+<body class="guide">
+  <main class="ruvic-container">
+    <nav class="ruvic-toc" aria-label="Índice">
+      <h2 data-i18n="toc_title">Contenido</h2>
+      <ol>
+        <li><a href="#que-es" data-i18n="toc.que_es">¿Qué es y para qué sirve?</a></li>
+        <li><a href="#prerrequisitos" data-i18n="toc.prerrequisitos">Prerrequisitos</a></li>
+        <li><a href="#configuracion-fabricante" data-i18n="toc.configuracion_fabricante">Configuración en el fabricante</a></li>
+        <li><a href="#permisos" data-i18n="toc.permisos">Permisos requeridos</a></li>
+        <li><a href="#configuracion-ruvic" data-i18n="toc.configuracion_ruvic">Configuración en Ruvic</a></li>
+        <li><a href="#verificacion" data-i18n="toc.verificacion">Verificación</a></li>
+        <li><a href="#solucion-problemas" data-i18n="toc.solucion_problemas">Solución de problemas</a></li>
+        <li><a href="#faq-seguridad" data-i18n="toc.faq_seguridad">Preguntas frecuentes y notas de seguridad</a></li>
+      </ol>
+    </nav>
+
+    <h1 data-i18n="guide_title">Conector Fortinet FortiGate — Guía de configuración</h1>
+    <p class="guide-updated">{{ULTIMA_ACTUALIZACION}}</p>
+
+    <section>
+      <h2 id="que-es" data-i18n="section.que_es">¿Qué es y para qué sirve?</h2>
+      <p data-i18n="section.que_es.body">El conector FortiGate permite que el agente de Ruvic administre un firewall Fortinet FortiGate a través de su REST API v2: puede consultar políticas de firewall, agregar objetos de dirección y revisar logs de tráfico recientes. Una vez configurado, puedes pedirle al agente cosas como:</p>
+      <ul>
+        <li data-i18n="section.que_es.ex1">"Lista las políticas de firewall activas en el VDOM raíz."</li>
+        <li data-i18n="section.que_es.ex2">"Agrega un objeto de dirección para la IP 10.0.0.5/32 con el nombre servidor-web."</li>
+        <li data-i18n="section.que_es.ex3">"Muéstrame las últimas 20 entradas del log de tráfico."</li>
+      </ul>
+      <p data-i18n="section.que_es.ops_intro">Operaciones soportadas:</p>
+      <table>
+        <thead>
+          <tr>
+            <th data-i18n="table.operacion">Operación</th>
+            <th data-i18n="table.para_que">Qué hace</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>security.list_policies</code></td>
+            <td data-i18n="op.list_policies">Lista las políticas de firewall configuradas en el VDOM (solo lectura)</td>
+          </tr>
+          <tr>
+            <td><code>security.add_address_object</code></td>
+            <td data-i18n="op.add_address_object">Agrega un objeto de dirección (IP/subred) real en la configuración del firewall</td>
+          </tr>
+          <tr>
+            <td><code>security.get_logs</code></td>
+            <td data-i18n="op.get_logs">Consulta logs recientes almacenados en disco (tráfico, eventos, virus, filtro web, IPS)</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout callout-info">
+        <span class="callout-title" data-i18n="callout.alcance.title">Qué no hace este conector</span>
+        <span data-i18n="callout.alcance.body">El conector solo consulta políticas de firewall — no las crea ni modifica. Tampoco administra VPNs, rutas ni interfaces. La única operación de escritura es la creación de objetos de dirección.</span>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="prerrequisitos" data-i18n="section.prerrequisitos">Prerrequisitos</h2>
+      <ul>
+        <li data-i18n="prereq.1">Un FortiGate (físico o VM) con FortiOS con la REST API habilitada, accesible por HTTPS desde la plataforma Ruvic.</li>
+        <li data-i18n="prereq.2">Acceso administrativo al FortiGate (rol con permiso para crear perfiles y cuentas de administrador), solo durante la configuración inicial.</li>
+        <li data-i18n="prereq.3"><strong>Acceso de red</strong> desde Ruvic al puerto de administración del FortiGate (por defecto <code>443</code>); regla de firewall local si aplica.</li>
+        <li data-i18n="prereq.4">La URL base del firewall (ej. <code>https://fw.empresa.com:443</code>) y, si usas VDOMs, el nombre del VDOM a administrar.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 id="configuracion-fabricante" data-i18n="section.configuracion_fabricante">Configuración en el fabricante</h2>
+      <p data-i18n="fabricante.intro">Vas a crear un <strong>perfil de administrador dedicado y de mínimo privilegio</strong>, y una <strong>cuenta REST API Admin</strong> asociada a ese perfil. No reutilices el usuario <code>admin</code> por defecto ni el perfil <code>super_admin</code>.</p>
+
+      <ol class="ruvic-steps">
+        <li>
+          <strong data-i18n="step.1.label">Crea el perfil de administrador (Admin Profile).</strong>
+          <span data-i18n="step.1.body">En el FortiGate, ve a <code>System → Admin Profiles → Create New</code>. Crea un perfil (ej. <code>ruvic_readonly</code>) y configura el acceso por categoría según la tabla de permisos de la siguiente sección: <strong>Read Only</strong> en Firewall Policy y Log &amp; Report, <strong>Read-Write</strong> únicamente en Firewall Address. Deja todo lo demás en <strong>None</strong>.</span>
+          <div class="screenshot-placeholder" data-i18n="img.perfil.placeholder">[ Captura: pantalla System → Admin Profiles con el perfil ruvic_readonly configurado — reemplazar por assets/img/fortigate-profile.png ]</div>
+        </li>
+        <li>
+          <strong data-i18n="step.2.label">Crea la cuenta REST API Admin.</strong>
+          <span data-i18n="step.2.body">Ve a <code>System → Administrators → Create New → REST API Admin</code>. Asigna el perfil creado en el paso anterior (no <code>super_admin</code>) y, si tu política lo permite, restringe la cuenta a las direcciones IP de confianza de la plataforma Ruvic (<em>Trusted Hosts</em>).</span>
+        </li>
+        <li>
+          <strong data-i18n="step.3.label">Genera el API token.</strong>
+          <span data-i18n="step.3.body">Al guardar la cuenta, FortiOS muestra el token <strong>una sola vez</strong>. Cópialo de inmediato a un gestor de contraseñas: lo necesitarás en el formulario de Ruvic (campo <em>API Token</em>) y no podrás volver a consultarlo desde la interfaz.</span>
+          <div class="callout callout-warning">
+            <span class="callout-title" data-i18n="callout.token.title">El token no se puede recuperar</span>
+            <span data-i18n="callout.token.body">Si pierdes el token, deberás regenerarlo (esto invalida el anterior) y actualizar el formulario del conector en Ruvic.</span>
+          </div>
+        </li>
+        <li>
+          <strong data-i18n="step.4.label">Confirma el VDOM a administrar.</strong>
+          <span data-i18n="step.4.body">Si el FortiGate tiene VDOMs habilitados, anota el nombre del VDOM sobre el que quieres operar (por defecto <code>root</code>). El perfil de administrador y la cuenta REST API deben tener acceso a ese VDOM.</span>
+        </li>
+        <li>
+          <strong data-i18n="step.5.label">Verifica el token desde fuera del firewall.</strong>
+          <span data-i18n="step.5.body">Desde una máquina con salida de red similar a la de Ruvic, valida que el token responda:</span>
+<pre><code>curl -k -H "Authorization: Bearer TU_API_TOKEN" \
+  "https://fw.empresa.com:443/api/v2/monitor/system/status?vdom=root"</code></pre>
+          <span data-i18n="step.5.body2">Si responde con un JSON de estado (código 200), el fabricante quedó listo. Anota estos valores para la siguiente sección: URL base, token, VDOM y si el certificado TLS es autofirmado.</span>
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 id="permisos" data-i18n="section.permisos">Permisos requeridos</h2>
+      <p data-i18n="permisos.intro">Principio de mínimo privilegio: la cuenta de Ruvic solo necesita estos accesos en el perfil de administrador. No otorgues <code>super_admin</code> ni escritura sobre políticas, VPN o configuración de red.</p>
+      <table>
+        <thead>
+          <tr>
+            <th data-i18n="table.permiso">Permiso (Admin Profile)</th>
+            <th data-i18n="table.para_que">Para qué lo usa el conector</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>Firewall Policy</code> — <span data-i18n="perm.read">Lectura</span></td>
+            <td data-i18n="perm.policy.desc">Consultar políticas de firewall (<code>list_policies</code>). No se otorga escritura: el conector nunca crea ni modifica políticas.</td>
+          </tr>
+          <tr>
+            <td><code>Firewall Address</code> — <span data-i18n="perm.readwrite">Lectura-Escritura</span></td>
+            <td data-i18n="perm.address.desc">Crear objetos de dirección nuevos (<code>add_address_object</code>).</td>
+          </tr>
+          <tr>
+            <td><code>Log &amp; Report</code> — <span data-i18n="perm.read">Lectura</span></td>
+            <td data-i18n="perm.log.desc">Consultar logs recientes almacenados en disco (<code>get_logs</code>).</td>
+          </tr>
+        </tbody>
+      </table>
+      <p data-i18n="permisos.nota">Todos los demás accesos del perfil (VPN, Network, System, User &amp; Device, etc.) deben quedar en <strong>None</strong>. La cuenta debe ser de tipo <strong>REST API Admin</strong>, no una cuenta de acceso a la GUI/CLI.</p>
+    </section>
+
+    <section>
+      <h2 id="configuracion-ruvic" data-i18n="section.configuracion_ruvic">Configuración en Ruvic</h2>
+      <p data-i18n="ruvic.intro">Entra a <strong>Settings → Conectores</strong>, busca la tarjeta <strong>Fortinet FortiGate</strong> y pulsa <strong>Configurar</strong>. Diligencia el formulario con los valores obtenidos en la sección de configuración en el fabricante:</p>
+      <table>
+        <thead>
+          <tr>
+            <th data-i18n="table.campo">Campo del formulario</th>
+            <th data-i18n="table.valor">Valor</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-i18n="field.base_url.label">URL base del FortiGate</td>
+            <td data-i18n="field.base_url.desc">Ej. <code>https://fw.empresa.com:443</code>, incluyendo el puerto de administración</td>
+          </tr>
+          <tr>
+            <td data-i18n="field.api_token.label">API Token</td>
+            <td data-i18n="field.api_token.desc">El token generado al crear la cuenta REST API Admin. Se guarda cifrado como secreto: la interfaz no volverá a mostrarlo</td>
+          </tr>
+          <tr>
+            <td data-i18n="field.vdom.label">VDOM</td>
+            <td data-i18n="field.vdom.desc">Opcional; por defecto <code>root</code></td>
+          </tr>
+          <tr>
+            <td data-i18n="field.verify_ssl.label">Verificar certificado TLS</td>
+            <td data-i18n="field.verify_ssl.desc">Actívalo en producción. Desactívalo solo si el firewall usa un certificado autofirmado en un entorno de laboratorio/prueba</td>
+          </tr>
+          <tr>
+            <td data-i18n="field.connect_timeout.label">Timeout de conexión (segundos)</td>
+            <td data-i18n="field.connect_timeout.desc">Opcional; por defecto <code>15</code> segundos</td>
+          </tr>
+        </tbody>
+      </table>
+      <p data-i18n="ruvic.save"><span class="ruvic-button">Guardar</span> y luego pulsa <span class="ruvic-button">Probar conexión</span> — la plataforma se conectará al FortiGate y confirmará que el token y la red funcionan.</p>
+      <div class="screenshot-placeholder" data-i18n="img.formulario.placeholder">[ Captura: formulario del conector FortiGate en Settings → Conectores — reemplazar por assets/img/fortigate-form.png ]</div>
+    </section>
+
+    <section>
+      <h2 id="verificacion" data-i18n="section.verificacion">Verificación</h2>
+      <ol class="ruvic-steps">
+        <li>
+          <strong data-i18n="verif.1.label">Test de conexión exitoso.</strong>
+          <span data-i18n="verif.1.body">El botón <em>Probar conexión</em> ejecuta un ping al estado del sistema del FortiGate y debe responder algo como: <em>"Conexión exitosa a FortiGate (https://fw.empresa.com:443)"</em>. La tarjeta del conector cambia a estado <strong>Configurado</strong>.</span>
+        </li>
+        <li>
+          <strong data-i18n="verif.2.label">Prueba mínima con el agente.</strong>
+          <span data-i18n="verif.2.body">Abre una conversación nueva con el agente y pídele:</span>
+          <blockquote data-i18n="verif.2.quote">"Lista las políticas de firewall de FortiGate."</blockquote>
+          <span data-i18n="verif.2.body2">El agente debe responder con el listado real de políticas del VDOM configurado. Si lo hace, el conector quedó operativo de punta a punta. Para probar la escritura, puedes además pedirle: "Agrega un objeto de dirección de prueba para la IP 203.0.113.10/32" (el conector pedirá confirmación antes de crearlo).</span>
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 id="solucion-problemas" data-i18n="section.solucion_problemas">Solución de problemas</h2>
+      <table>
+        <thead>
+          <tr>
+            <th data-i18n="table.mensaje">Mensaje / síntoma</th>
+            <th data-i18n="table.causa">Causa probable y solución</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-i18n="trbl.1.msg">"Autenticación fallida: Token inválido o sin permiso suficiente para esta operación/VDOM."</td>
+            <td data-i18n="trbl.1.fix">El API Token es incorrecto, fue regenerado, o el perfil de administrador no tiene acceso al VDOM/categoría solicitada. Revisa el paso de generación del token en la sección de configuración en el fabricante y confirma los permisos de la sección de permisos requeridos.</td>
+          </tr>
+          <tr>
+            <td data-i18n="trbl.2.msg">"Error de red: No se pudo alcanzar el firewall en '...'"</td>
+            <td data-i18n="trbl.2.fix">La plataforma no alcanza la URL base configurada. Verifica que el host/puerto sean accesibles desde Ruvic (no solo desde tu equipo), que no haya un firewall bloqueando el puerto de administración y que la URL incluya el esquema <code>https://</code> y el puerto correcto.</td>
+          </tr>
+          <tr>
+            <td data-i18n="trbl.3.msg">Error de certificado TLS / conexión rechazada por SSL</td>
+            <td data-i18n="trbl.3.fix">El FortiGate usa un certificado autofirmado. En entornos de laboratorio, desactiva "Verificar certificado TLS" en el formulario del conector. En producción, instala un certificado válido en el FortiGate en lugar de desactivar la verificación.</td>
+          </tr>
+          <tr>
+            <td data-i18n="trbl.4.msg">"FortiGate respondió 404/400: ..." al agregar un objeto de dirección</td>
+            <td data-i18n="trbl.4.fix">Nombre de objeto duplicado o subred con formato inválido. Usa un nombre único en el VDOM y un formato CIDR (<code>10.0.0.0/24</code>) o "IP MÁSCARA".</td>
+          </tr>
+          <tr>
+            <td data-i18n="trbl.5.msg">El conector aparece "Sin configurar" tras guardar</td>
+            <td data-i18n="trbl.5.fix">Falta la URL base o el API Token (son obligatorios). Ábrelo de nuevo y completa ambos campos; los demás son opcionales.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 id="faq-seguridad" data-i18n="section.faq_seguridad">Preguntas frecuentes y notas de seguridad</h2>
+
+      <h3 data-i18n="faq.1.q">¿El agente puede crear o modificar políticas de firewall?</h3>
+      <p data-i18n="faq.1.a">No. El conector solo lee políticas (<code>list_policies</code>); no incluye ninguna operación para crearlas, modificarlas o eliminarlas. La única escritura posible es la creación de objetos de dirección.</p>
+
+      <h3 data-i18n="faq.2.q">¿Dónde queda guardado el API Token?</h3>
+      <p data-i18n="faq.2.a">Como secreto cifrado en el almacén de credenciales de la plataforma, asociado a tu usuario. La interfaz nunca vuelve a mostrarlo; solo indica "definido". Para cambiarlo, escribe uno nuevo en el formulario; para conservarlo al editar otros campos, deja el campo vacío.</p>
+
+      <h3 data-i18n="faq.3.q">Rotación del token</h3>
+      <p data-i18n="faq.3.a">Recomendado cada 90 días o según tu política: en el FortiGate, ve a <code>System → Administrators</code>, edita la cuenta REST API Admin y regenera el token (esto invalida el anterior de inmediato). Actualiza el nuevo token en el formulario del conector y pulsa <em>Probar conexión</em>.</p>
+
+      <h3 data-i18n="faq.4.q">¿Qué hago si el token se compromete?</h3>
+      <ol>
+        <li data-i18n="faq.4.a1">Regenera el token de inmediato desde <code>System → Administrators</code> en el FortiGate (invalida el anterior) o deshabilita la cuenta REST API Admin.</li>
+        <li data-i18n="faq.4.a2">Revisa la actividad reciente de esa cuenta en los logs de eventos del FortiGate (<code>Log &amp; Report → Events → System Events</code>).</li>
+        <li data-i18n="faq.4.a3">Actualiza el nuevo token en el formulario del conector en Ruvic.</li>
+      </ol>
+
+      <h3 data-i18n="faq.5.q">¿Por qué no usar el usuario admin por defecto?</h3>
+      <p data-i18n="faq.5.a">Porque tendría acceso total al firewall (VPN, rutas, interfaces, otros administradores), muy por encima de lo que el conector necesita. Un perfil dedicado y de mínimo privilegio limita el daño posible si el token se filtra, y permite auditar la actividad del agente por separado del resto de administradores.</p>
+
+      <h3 data-i18n="faq.6.q">¿Qué pasa si el FortiGate no tiene disco local para logs?</h3>
+      <p data-i18n="faq.6.a"><code>get_logs</code> consulta el almacenamiento en disco del FortiGate. Si el firewall no tiene disco local o usa FortiAnalyzer como almacenamiento exclusivo, la operación puede retornar resultados vacíos aunque la conexión funcione correctamente.</p>
+
+      <div class="callout callout-warning">
+        <span class="callout-title" data-i18n="callout.buenas_practicas.title">Buenas prácticas</span>
+        <span data-i18n="callout.buenas_practicas.body">Usa siempre una cuenta REST API Admin dedicada con un perfil de mínimo privilegio (nunca super_admin); restringe la cuenta a hosts de confianza si tu versión de FortiOS lo permite; desactiva la verificación TLS solo en laboratorio, nunca en producción; y evita compartir el API Token por canales no seguros.</span>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const I18N = {
+      es: {
+        doc_title: "Conector Fortinet FortiGate — Ruvic",
+        toc_title: "Contenido",
+        "toc.que_es": "¿Qué es y para qué sirve?",
+        "toc.prerrequisitos": "Prerrequisitos",
+        "toc.configuracion_fabricante": "Configuración en el fabricante",
+        "toc.permisos": "Permisos requeridos",
+        "toc.configuracion_ruvic": "Configuración en Ruvic",
+        "toc.verificacion": "Verificación",
+        "toc.solucion_problemas": "Solución de problemas",
+        "toc.faq_seguridad": "Preguntas frecuentes y notas de seguridad",
+        guide_title: "Conector Fortinet FortiGate — Guía de configuración",
+
+        "section.que_es": "¿Qué es y para qué sirve?",
+        "section.que_es.body": "El conector FortiGate permite que el agente de Ruvic administre un firewall Fortinet FortiGate a través de su REST API v2: puede consultar políticas de firewall, agregar objetos de dirección y revisar logs de tráfico recientes. Una vez configurado, puedes pedirle al agente cosas como:",
+        "section.que_es.ex1": "\"Lista las políticas de firewall activas en el VDOM raíz.\"",
+        "section.que_es.ex2": "\"Agrega un objeto de dirección para la IP 10.0.0.5/32 con el nombre servidor-web.\"",
+        "section.que_es.ex3": "\"Muéstrame las últimas 20 entradas del log de tráfico.\"",
+        "section.que_es.ops_intro": "Operaciones soportadas:",
+        "table.operacion": "Operación",
+        "table.para_que": "Qué hace",
+        "op.list_policies": "Lista las políticas de firewall configuradas en el VDOM (solo lectura)",
+        "op.add_address_object": "Agrega un objeto de dirección (IP/subred) real en la configuración del firewall",
+        "op.get_logs": "Consulta logs recientes almacenados en disco (tráfico, eventos, virus, filtro web, IPS)",
+        "callout.alcance.title": "Qué no hace este conector",
+        "callout.alcance.body": "El conector solo consulta políticas de firewall — no las crea ni modifica. Tampoco administra VPNs, rutas ni interfaces. La única operación de escritura es la creación de objetos de dirección.",
+
+        "section.prerrequisitos": "Prerrequisitos",
+        "prereq.1": "Un FortiGate (físico o VM) con FortiOS con la REST API habilitada, accesible por HTTPS desde la plataforma Ruvic.",
+        "prereq.2": "Acceso administrativo al FortiGate (rol con permiso para crear perfiles y cuentas de administrador), solo durante la configuración inicial.",
+        "prereq.3": "Acceso de red desde Ruvic al puerto de administración del FortiGate (por defecto 443); regla de firewall local si aplica.",
+        "prereq.4": "La URL base del firewall (ej. https://fw.empresa.com:443) y, si usas VDOMs, el nombre del VDOM a administrar.",
+
+        "section.configuracion_fabricante": "Configuración en el fabricante",
+        "fabricante.intro": "Vas a crear un perfil de administrador dedicado y de mínimo privilegio, y una cuenta REST API Admin asociada a ese perfil. No reutilices el usuario admin por defecto ni el perfil super_admin.",
+        "step.1.label": "Crea el perfil de administrador (Admin Profile).",
+        "step.1.body": "En el FortiGate, ve a System → Admin Profiles → Create New. Crea un perfil (ej. ruvic_readonly) y configura el acceso por categoría según la tabla de permisos de la siguiente sección: Read Only en Firewall Policy y Log & Report, Read-Write únicamente en Firewall Address. Deja todo lo demás en None.",
+        "img.perfil.placeholder": "[ Captura: pantalla System → Admin Profiles con el perfil ruvic_readonly configurado — reemplazar por assets/img/fortigate-profile.png ]",
+        "step.2.label": "Crea la cuenta REST API Admin.",
+        "step.2.body": "Ve a System → Administrators → Create New → REST API Admin. Asigna el perfil creado en el paso anterior (no super_admin) y, si tu política lo permite, restringe la cuenta a las direcciones IP de confianza de la plataforma Ruvic (Trusted Hosts).",
+        "step.3.label": "Genera el API token.",
+        "step.3.body": "Al guardar la cuenta, FortiOS muestra el token una sola vez. Cópialo de inmediato a un gestor de contraseñas: lo necesitarás en el formulario de Ruvic (campo API Token) y no podrás volver a consultarlo desde la interfaz.",
+        "callout.token.title": "El token no se puede recuperar",
+        "callout.token.body": "Si pierdes el token, deberás regenerarlo (esto invalida el anterior) y actualizar el formulario del conector en Ruvic.",
+        "step.4.label": "Confirma el VDOM a administrar.",
+        "step.4.body": "Si el FortiGate tiene VDOMs habilitados, anota el nombre del VDOM sobre el que quieres operar (por defecto root). El perfil de administrador y la cuenta REST API deben tener acceso a ese VDOM.",
+        "step.5.label": "Verifica el token desde fuera del firewall.",
+        "step.5.body": "Desde una máquina con salida de red similar a la de Ruvic, valida que el token responda:",
+        "step.5.body2": "Si responde con un JSON de estado (código 200), el fabricante quedó listo. Anota estos valores para la siguiente sección: URL base, token, VDOM y si el certificado TLS es autofirmado.",
+
+        "section.permisos": "Permisos requeridos",
+        "permisos.intro": "Principio de mínimo privilegio: la cuenta de Ruvic solo necesita estos accesos en el perfil de administrador. No otorgues super_admin ni escritura sobre políticas, VPN o configuración de red.",
+        "table.permiso": "Permiso (Admin Profile)",
+        "perm.read": "Lectura",
+        "perm.readwrite": "Lectura-Escritura",
+        "perm.policy.desc": "Consultar políticas de firewall (list_policies). No se otorga escritura: el conector nunca crea ni modifica políticas.",
+        "perm.address.desc": "Crear objetos de dirección nuevos (add_address_object).",
+        "perm.log.desc": "Consultar logs recientes almacenados en disco (get_logs).",
+        "permisos.nota": "Todos los demás accesos del perfil (VPN, Network, System, User & Device, etc.) deben quedar en None. La cuenta debe ser de tipo REST API Admin, no una cuenta de acceso a la GUI/CLI.",
+
+        "section.configuracion_ruvic": "Configuración en Ruvic",
+        "ruvic.intro": "Entra a Settings → Conectores, busca la tarjeta Fortinet FortiGate y pulsa Configurar. Diligencia el formulario con los valores obtenidos en la sección de configuración en el fabricante:",
+        "table.campo": "Campo del formulario",
+        "table.valor": "Valor",
+        "field.base_url.label": "URL base del FortiGate",
+        "field.base_url.desc": "Ej. https://fw.empresa.com:443, incluyendo el puerto de administración",
+        "field.api_token.label": "API Token",
+        "field.api_token.desc": "El token generado al crear la cuenta REST API Admin. Se guarda cifrado como secreto: la interfaz no volverá a mostrarlo",
+        "field.vdom.label": "VDOM",
+        "field.vdom.desc": "Opcional; por defecto root",
+        "field.verify_ssl.label": "Verificar certificado TLS",
+        "field.verify_ssl.desc": "Actívalo en producción. Desactívalo solo si el firewall usa un certificado autofirmado en un entorno de laboratorio/prueba",
+        "field.connect_timeout.label": "Timeout de conexión (segundos)",
+        "field.connect_timeout.desc": "Opcional; por defecto 15 segundos",
+        "ruvic.save": "Guardar y luego pulsa Probar conexión — la plataforma se conectará al FortiGate y confirmará que el token y la red funcionan.",
+        "img.formulario.placeholder": "[ Captura: formulario del conector FortiGate en Settings → Conectores — reemplazar por assets/img/fortigate-form.png ]",
+
+        "section.verificacion": "Verificación",
+        "verif.1.label": "Test de conexión exitoso.",
+        "verif.1.body": "El botón Probar conexión ejecuta un ping al estado del sistema del FortiGate y debe responder algo como: \"Conexión exitosa a FortiGate (https://fw.empresa.com:443)\". La tarjeta del conector cambia a estado Configurado.",
+        "verif.2.label": "Prueba mínima con el agente.",
+        "verif.2.body": "Abre una conversación nueva con el agente y pídele:",
+        "verif.2.quote": "\"Lista las políticas de firewall de FortiGate.\"",
+        "verif.2.body2": "El agente debe responder con el listado real de políticas del VDOM configurado. Si lo hace, el conector quedó operativo de punta a punta. Para probar la escritura, puedes además pedirle: \"Agrega un objeto de dirección de prueba para la IP 203.0.113.10/32\" (el conector pedirá confirmación antes de crearlo).",
+
+        "section.solucion_problemas": "Solución de problemas",
+        "table.mensaje": "Mensaje / síntoma",
+        "table.causa": "Causa probable y solución",
+        "trbl.1.msg": "\"Autenticación fallida: Token inválido o sin permiso suficiente para esta operación/VDOM.\"",
+        "trbl.1.fix": "El API Token es incorrecto, fue regenerado, o el perfil de administrador no tiene acceso al VDOM/categoría solicitada. Revisa el paso de generación del token en la sección de configuración en el fabricante y confirma los permisos de la sección de permisos requeridos.",
+        "trbl.2.msg": "\"Error de red: No se pudo alcanzar el firewall en '...'\"",
+        "trbl.2.fix": "La plataforma no alcanza la URL base configurada. Verifica que el host/puerto sean accesibles desde Ruvic (no solo desde tu equipo), que no haya un firewall bloqueando el puerto de administración y que la URL incluya el esquema https:// y el puerto correcto.",
+        "trbl.3.msg": "Error de certificado TLS / conexión rechazada por SSL",
+        "trbl.3.fix": "El FortiGate usa un certificado autofirmado. En entornos de laboratorio, desactiva \"Verificar certificado TLS\" en el formulario del conector. En producción, instala un certificado válido en el FortiGate en lugar de desactivar la verificación.",
+        "trbl.4.msg": "\"FortiGate respondió 404/400: ...\" al agregar un objeto de dirección",
+        "trbl.4.fix": "Nombre de objeto duplicado o subred con formato inválido. Usa un nombre único en el VDOM y un formato CIDR (10.0.0.0/24) o \"IP MÁSCARA\".",
+        "trbl.5.msg": "El conector aparece \"Sin configurar\" tras guardar",
+        "trbl.5.fix": "Falta la URL base o el API Token (son obligatorios). Ábrelo de nuevo y completa ambos campos; los demás son opcionales.",
+
+        "section.faq_seguridad": "Preguntas frecuentes y notas de seguridad",
+        "faq.1.q": "¿El agente puede crear o modificar políticas de firewall?",
+        "faq.1.a": "No. El conector solo lee políticas (list_policies); no incluye ninguna operación para crearlas, modificarlas o eliminarlas. La única escritura posible es la creación de objetos de dirección.",
+        "faq.2.q": "¿Dónde queda guardado el API Token?",
+        "faq.2.a": "Como secreto cifrado en el almacén de credenciales de la plataforma, asociado a tu usuario. La interfaz nunca vuelve a mostrarlo; solo indica \"definido\". Para cambiarlo, escribe uno nuevo en el formulario; para conservarlo al editar otros campos, deja el campo vacío.",
+        "faq.3.q": "Rotación del token",
+        "faq.3.a": "Recomendado cada 90 días o según tu política: en el FortiGate, ve a System → Administrators, edita la cuenta REST API Admin y regenera el token (esto invalida el anterior de inmediato). Actualiza el nuevo token en el formulario del conector y pulsa Probar conexión.",
+        "faq.4.q": "¿Qué hago si el token se compromete?",
+        "faq.4.a1": "Regenera el token de inmediato desde System → Administrators en el FortiGate (invalida el anterior) o deshabilita la cuenta REST API Admin.",
+        "faq.4.a2": "Revisa la actividad reciente de esa cuenta en los logs de eventos del FortiGate (Log & Report → Events → System Events).",
+        "faq.4.a3": "Actualiza el nuevo token en el formulario del conector en Ruvic.",
+        "faq.5.q": "¿Por qué no usar el usuario admin por defecto?",
+        "faq.5.a": "Porque tendría acceso total al firewall (VPN, rutas, interfaces, otros administradores), muy por encima de lo que el conector necesita. Un perfil dedicado y de mínimo privilegio limita el daño posible si el token se filtra, y permite auditar la actividad del agente por separado del resto de administradores.",
+        "faq.6.q": "¿Qué pasa si el FortiGate no tiene disco local para logs?",
+        "faq.6.a": "get_logs consulta el almacenamiento en disco del FortiGate. Si el firewall no tiene disco local o usa FortiAnalyzer como almacenamiento exclusivo, la operación puede retornar resultados vacíos aunque la conexión funcione correctamente.",
+        "callout.buenas_practicas.title": "Buenas prácticas",
+        "callout.buenas_practicas.body": "Usa siempre una cuenta REST API Admin dedicada con un perfil de mínimo privilegio (nunca super_admin); restringe la cuenta a hosts de confianza si tu versión de FortiOS lo permite; desactiva la verificación TLS solo en laboratorio, nunca en producción; y evita compartir el API Token por canales no seguros.",
+      },
+      en: {
+        doc_title: "Fortinet FortiGate Connector — Ruvic",
+        toc_title: "Contents",
+        "toc.que_es": "What it is and what it's for",
+        "toc.prerrequisitos": "Prerequisites",
+        "toc.configuracion_fabricante": "Vendor / provider setup",
+        "toc.permisos": "Required permissions",
+        "toc.configuracion_ruvic": "Configuration in Ruvic",
+        "toc.verificacion": "Verification",
+        "toc.solucion_problemas": "Troubleshooting",
+        "toc.faq_seguridad": "FAQ and security notes",
+        guide_title: "Fortinet FortiGate Connector — Setup Guide",
+
+        "section.que_es": "What it is and what it's for",
+        "section.que_es.body": "The FortiGate connector lets the Ruvic agent manage a Fortinet FortiGate firewall through its REST API v2: it can check firewall policies, add address objects and review recent traffic logs. Once configured, you can ask the agent things like:",
+        "section.que_es.ex1": "\"List the active firewall policies in the root VDOM.\"",
+        "section.que_es.ex2": "\"Add an address object for IP 10.0.0.5/32 named servidor-web.\"",
+        "section.que_es.ex3": "\"Show me the last 20 traffic log entries.\"",
+        "section.que_es.ops_intro": "Supported operations:",
+        "table.operacion": "Operation",
+        "table.para_que": "What it does",
+        "op.list_policies": "Lists the firewall policies configured in the VDOM (read-only)",
+        "op.add_address_object": "Adds a real address object (IP/subnet) to the firewall configuration",
+        "op.get_logs": "Queries recent logs stored on disk (traffic, event, virus, webfilter, IPS)",
+        "callout.alcance.title": "What this connector does not do",
+        "callout.alcance.body": "The connector only reads firewall policies — it never creates or modifies them. It also does not manage VPNs, routes or interfaces. The only write operation is creating address objects.",
+
+        "section.prerrequisitos": "Prerequisites",
+        "prereq.1": "A FortiGate (physical or VM) running FortiOS with the REST API enabled, reachable over HTTPS from the Ruvic platform.",
+        "prereq.2": "Administrative access to the FortiGate (a role that can create profiles and administrator accounts), only during initial setup.",
+        "prereq.3": "Network access from Ruvic to the FortiGate's management port (default 443); a local firewall rule if applicable.",
+        "prereq.4": "The firewall's base URL (e.g. https://fw.company.com:443) and, if you use VDOMs, the name of the VDOM to manage.",
+
+        "section.configuracion_fabricante": "Vendor / provider setup",
+        "fabricante.intro": "You will create a dedicated, least-privilege administrator profile, and a REST API Admin account tied to that profile. Do not reuse the default admin user or the super_admin profile.",
+        "step.1.label": "Create the Admin Profile.",
+        "step.1.body": "On the FortiGate, go to System → Admin Profiles → Create New. Create a profile (e.g. ruvic_readonly) and set per-category access according to the permissions table in the next section: Read Only on Firewall Policy and Log & Report, Read-Write only on Firewall Address. Leave everything else as None.",
+        "img.perfil.placeholder": "[ Screenshot: System → Admin Profiles screen with the ruvic_readonly profile configured — replace with assets/img/fortigate-profile.png ]",
+        "step.2.label": "Create the REST API Admin account.",
+        "step.2.body": "Go to System → Administrators → Create New → REST API Admin. Assign the profile created in the previous step (not super_admin) and, if your policy allows it, restrict the account to the Ruvic platform's trusted IP addresses (Trusted Hosts).",
+        "step.3.label": "Generate the API token.",
+        "step.3.body": "When you save the account, FortiOS shows the token only once. Copy it immediately into a password manager: you will need it in the Ruvic form (API Token field) and you won't be able to view it again from the interface.",
+        "callout.token.title": "The token cannot be recovered",
+        "callout.token.body": "If you lose the token, you will need to regenerate it (this invalidates the previous one) and update the connector form in Ruvic.",
+        "step.4.label": "Confirm the VDOM to manage.",
+        "step.4.body": "If the FortiGate has VDOMs enabled, note the name of the VDOM you want to operate on (default root). Both the admin profile and the REST API account must have access to that VDOM.",
+        "step.5.label": "Verify the token from outside the firewall.",
+        "step.5.body": "From a machine with network egress similar to Ruvic's, confirm the token works:",
+        "step.5.body2": "If it returns a status JSON (HTTP 200), the vendor side is ready. Write down these values for the next section: base URL, token, VDOM, and whether the TLS certificate is self-signed.",
+
+        "section.permisos": "Required permissions",
+        "permisos.intro": "Least-privilege principle: the Ruvic account only needs these accesses in the admin profile. Do not grant super_admin or write access to policies, VPN or network configuration.",
+        "table.permiso": "Permission (Admin Profile)",
+        "perm.read": "Read",
+        "perm.readwrite": "Read-Write",
+        "perm.policy.desc": "Query firewall policies (list_policies). No write access is granted: the connector never creates or modifies policies.",
+        "perm.address.desc": "Create new address objects (add_address_object).",
+        "perm.log.desc": "Query recent logs stored on disk (get_logs).",
+        "permisos.nota": "All other accesses in the profile (VPN, Network, System, User & Device, etc.) must remain None. The account must be a REST API Admin type, not a GUI/CLI login account.",
+
+        "section.configuracion_ruvic": "Configuration in Ruvic",
+        "ruvic.intro": "Go to Settings → Connectors, find the Fortinet FortiGate card and click Configure. Fill in the form with the values obtained in the vendor setup section:",
+        "table.campo": "Form field",
+        "table.valor": "Value",
+        "field.base_url.label": "FortiGate base URL",
+        "field.base_url.desc": "E.g. https://fw.company.com:443, including the management port",
+        "field.api_token.label": "API Token",
+        "field.api_token.desc": "The token generated when creating the REST API Admin account. Stored encrypted as a secret: the UI will never display it again",
+        "field.vdom.label": "VDOM",
+        "field.vdom.desc": "Optional; defaults to root",
+        "field.verify_ssl.label": "Verify TLS certificate",
+        "field.verify_ssl.desc": "Keep it on in production. Turn it off only if the firewall uses a self-signed certificate in a lab/test environment",
+        "field.connect_timeout.label": "Connection timeout (seconds)",
+        "field.connect_timeout.desc": "Optional; defaults to 15 seconds",
+        "ruvic.save": "Save and then click Test connection — the platform will connect to the FortiGate and confirm the token and networking work.",
+        "img.formulario.placeholder": "[ Screenshot: FortiGate connector form in Settings → Connectors — replace with assets/img/fortigate-form.png ]",
+
+        "section.verificacion": "Verification",
+        "verif.1.label": "Successful connection test.",
+        "verif.1.body": "The Test connection button pings the FortiGate's system status and should return something like: \"Successful connection to FortiGate (https://fw.company.com:443)\". The connector card switches to Configured.",
+        "verif.2.label": "Minimal test with the agent.",
+        "verif.2.body": "Open a new conversation with the agent and ask:",
+        "verif.2.quote": "\"List the FortiGate firewall policies.\"",
+        "verif.2.body2": "The agent should reply with the actual policy list from the configured VDOM. If it does, the connector is fully operational. To also test the write path, you can ask: \"Add a test address object for IP 203.0.113.10/32\" (the connector will ask for confirmation before creating it).",
+
+        "section.solucion_problemas": "Troubleshooting",
+        "table.mensaje": "Message / symptom",
+        "table.causa": "Likely cause and fix",
+        "trbl.1.msg": "\"Authentication failed: Invalid token or insufficient permission for this operation/VDOM.\"",
+        "trbl.1.fix": "The API Token is wrong, was regenerated, or the admin profile lacks access to the requested VDOM/category. Review the token generation step in the vendor setup section and confirm the permissions in the required permissions section.",
+        "trbl.2.msg": "\"Network error: Could not reach the firewall at '...'\"",
+        "trbl.2.fix": "The platform cannot reach the configured base URL. Verify the host/port are reachable from Ruvic (not just from your machine), that no firewall is blocking the management port, and that the URL includes the https:// scheme and correct port.",
+        "trbl.3.msg": "TLS certificate error / SSL connection rejected",
+        "trbl.3.fix": "The FortiGate uses a self-signed certificate. In lab environments, turn off \"Verify TLS certificate\" in the connector form. In production, install a valid certificate on the FortiGate instead of disabling verification.",
+        "trbl.4.msg": "\"FortiGate responded 404/400: ...\" when adding an address object",
+        "trbl.4.fix": "Duplicate object name or invalid subnet format. Use a name that is unique within the VDOM and a CIDR format (10.0.0.0/24) or \"IP MASK\".",
+        "trbl.5.msg": "Connector shows \"Not configured\" after saving",
+        "trbl.5.fix": "The base URL or API Token is missing (both are required). Open it again and fill in both fields; the rest are optional.",
+
+        "section.faq_seguridad": "FAQ and security notes",
+        "faq.1.q": "Can the agent create or modify firewall policies?",
+        "faq.1.a": "No. The connector only reads policies (list_policies); it includes no operation to create, modify or delete them. The only possible write is creating address objects.",
+        "faq.2.q": "Where is the API Token stored?",
+        "faq.2.a": "As an encrypted secret in the platform's credential store, tied to your user. The UI never displays it again; it only shows \"set\". To change it, type a new one in the form; to keep it while editing other fields, leave the field empty.",
+        "faq.3.q": "Token rotation",
+        "faq.3.a": "Recommended every 90 days or per your policy: on the FortiGate, go to System → Administrators, edit the REST API Admin account and regenerate the token (this immediately invalidates the previous one). Update the new token in the connector form and click Test connection.",
+        "faq.4.q": "What should I do if the token is compromised?",
+        "faq.4.a1": "Regenerate the token immediately from System → Administrators on the FortiGate (invalidates the previous one) or disable the REST API Admin account.",
+        "faq.4.a2": "Review that account's recent activity in the FortiGate event logs (Log & Report → Events → System Events).",
+        "faq.4.a3": "Update the new token in the connector form in Ruvic.",
+        "faq.5.q": "Why not use the default admin user?",
+        "faq.5.a": "Because it would have full access to the firewall (VPN, routes, interfaces, other administrators), far beyond what the connector needs. A dedicated, least-privilege profile limits the damage if the token leaks, and lets you audit the agent's activity separately from other administrators.",
+        "faq.6.q": "What happens if the FortiGate has no local disk for logs?",
+        "faq.6.a": "get_logs queries the FortiGate's on-disk log storage. If the firewall has no local disk or uses FortiAnalyzer as its exclusive log storage, the operation may return empty results even though the connection works correctly.",
+        "callout.buenas_practicas.title": "Best practices",
+        "callout.buenas_practicas.body": "Always use a dedicated REST API Admin account with a least-privilege profile (never super_admin); restrict the account to trusted hosts if your FortiOS version supports it; disable TLS verification only in lab environments, never in production; and never share the API Token over insecure channels.",
+      },
+    };
+    /* El portal aplica el idioma del usuario (localStorage ruvic-docs-lang)
+       y actualiza [data-i18n], [data-i18n-placeholder] y [data-i18n-alt]. */
+  </script>
+</body>
+</html>
