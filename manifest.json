@@ -1,0 +1,69 @@
+{
+  "id": "fortigate",
+  "name": "Fortinet FortiGate",
+  "name_en": "Fortinet FortiGate",
+  "version": "1.0.0",
+  "description": "Administración de políticas y objetos en FortiGate: consultar políticas de firewall, agregar un objeto de dirección y consultar logs de tráfico",
+  "description_en": "Policy and object administration in FortiGate: check firewall policies, add an address object and query traffic logs",
+  "icon": "icon.svg",
+  "category": "security",
+  "category_en": "security",
+  "keywords": ["fortigate", "fortinet", "firewall", "ciberseguridad", "cybersecurity", "políticas", "policies"],
+  "library": {
+    "package": "ruvic-fortigate-connector",
+    "install": "pip install git+https://github.com/Dgirto/FortiGate.git#subdirectory=lib",
+    "import_name": "ruvic_fortigate_connector"
+  },
+  "auth_modes": [
+    {
+      "id": "api_token",
+      "label": "API Token",
+      "fields": [
+        {
+          "key": "base_url",
+          "label": "URL base del FortiGate",
+          "type": "text",
+          "required": true,
+          "placeholder": "https://fw.empresa.com:443"
+        },
+        {
+          "key": "api_token",
+          "label": "API Token",
+          "type": "password",
+          "secret": true,
+          "required": true,
+          "help_text": "Crea una cuenta de administrador de tipo REST API Admin en el FortiGate y genera su token"
+        },
+        {
+          "key": "vdom",
+          "label": "VDOM",
+          "type": "text",
+          "required": false,
+          "default": "root"
+        },
+        {
+          "key": "verify_ssl",
+          "label": "Verificar certificado TLS",
+          "type": "boolean",
+          "required": false,
+          "default": "true",
+          "help_text": "Desactívalo solo para firewalls con certificado autofirmado en entornos de prueba"
+        },
+        {
+          "key": "connect_timeout",
+          "label": "Timeout de conexión (segundos)",
+          "type": "number",
+          "required": false,
+          "default": "15"
+        }
+      ]
+    }
+  ],
+  "env_prefix": "RUVIC_FORTIGATE_",
+  "operations": ["security.list_policies", "security.add_address_object", "security.get_logs"],
+  "test_connection": true,
+  "docs": {
+    "skill": "SKILL.md",
+    "permissions_note": "Crea un perfil de administrador dedicado (System → Admin Profiles) con acceso 'Read' sobre Firewall Policy y Log & Report, y 'Read-Write' únicamente sobre Firewall Address (necesario para add_address_object). No otorgues el perfil 'super_admin' ni acceso de escritura sobre políticas, VPN o configuración de red."
+  }
+}
